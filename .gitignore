@@ -6,6 +6,7 @@
 !/bitrix/components
 
 /upload
+/images
 y-market/saved_file.xml
 
 *.sass-cache
