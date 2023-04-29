@@ -16,6 +16,7 @@ use \Bitrix\Main\Entity;
 use \Bitrix\Main\Page\Asset;
 use \Bitrix\Main\Service\GeoIp;
 use \Bitrix\Main\UI\PageNavigation;
+use Bitrix\UI\Fonts;
 
 class LandingBaseComponent extends \CBitrixComponent
 {
@@ -75,7 +76,7 @@ class LandingBaseComponent extends \CBitrixComponent
 
 	/**
 	 * Last navigation result.
-	 * @var \Bitrix\Main\UI\PageNavigation
+	 * @var PageNavigation
 	 */
 	protected $lastNavigation = null;
 
@@ -86,30 +87,34 @@ class LandingBaseComponent extends \CBitrixComponent
 	protected $currentRequest = null;
 
 	/**
+	 * Required initialization made in this instance.
+	 * @var bool
+	 */
+	private ?bool $initiated = null;
+
+	/**
 	 * Init class' vars, check conditions.
 	 * @return bool
 	 */
-	protected function init()
+	protected function init(): bool
 	{
-		static $init = null;
-
-		if ($init !== null)
+		if ($this->initiated !== null)
 		{
-			return $init;
+			return $this->initiated;
 		}
 
-		$init = true;
+		$this->initiated = true;
 
 		Loc::loadMessages($this->getFile());
 
-		if ($init && !Loader::includeModule('landing'))
+		if ($this->initiated && !Loader::includeModule('landing'))
 		{
 			$this->addError('LANDING_CMP_NOT_INSTALLED');
-			$init = false;
+			$this->initiated = false;
 		}
 		$this->initRequest();
 
-		return $init;
+		return $this->initiated;
 	}
 
 	/**
@@ -147,6 +152,14 @@ class LandingBaseComponent extends \CBitrixComponent
 	 */
 	public function getUserGeoData(): array
 	{
+		if (defined('LANDING_DISABLE_USER_DATA_COLLECT') && LANDING_DISABLE_USER_DATA_COLLECT === true)
+		{
+			return [
+				'country' => 'N0',
+				'city' => 'N0'
+			];
+		}
+
 		$countryName = GeoIp\Manager::getCountryName('', 'ru');
 		if (!$countryName)
 		{
@@ -251,7 +264,7 @@ class LandingBaseComponent extends \CBitrixComponent
 					'partner_id' => $partnerId,
 					'date_to' => $tariffDate ?: null
 				],
-				'PORTAL_URI' => 'https://cp.bitrix.ru'
+				'PORTAL_URI' => 'https://bitrix24.team'
 			],
 			'landing-feedback-knowledge' => [
 				'ID' => 'landing-feedback-knowledge',
@@ -275,7 +288,33 @@ class LandingBaseComponent extends \CBitrixComponent
 					'partner_id' => $partnerId,
 					'date_to' => $tariffDate ?: null
 				],
-				'PORTAL_URI' => 'https://cp.bitrix.ru'
+				'PORTAL_URI' => 'https://bitrix24.team'
+			],
+			'landing-feedback-store' => [
+				'ID' => 'landing-feedback-store',
+				'VIEW_TARGET' => null,
+				'FORMS' => [
+					['zones' => ['en'], 'id' => '1930','lang' => 'en', 'sec' => 'lg4wsd'],
+					['zones' => ['de'], 'id' => '1965','lang' => 'de', 'sec' => 'i95dp6'],
+					['zones' => ['es'], 'id' => '1966','lang' => 'la', 'sec' => 'zlemun'],
+					['zones' => ['fr'], 'id' => '1968','lang' => 'fr', 'sec' => '8rao53'],
+					['zones' => ['pl'], 'id' => '1967','lang' => 'pl', 'sec' => 'hg6mms'],
+					['zones' => ['pt'], 'id' => '1964','lang' => 'pt', 'sec' => 'n4evxs'],
+					['zones' => ['ru'], 'id' => '1291','lang' => 'ru', 'sec' => 'a9byq4'],
+					['zones' => ['kz'], 'id' => '1298','lang' => 'ru', 'sec' => '6xe72g'],
+					['zones' => ['by'], 'id' => '1297','lang' => 'ru', 'sec' => 'b9rrf5'],
+					['zones' => ['it'], 'id' => '1969','lang' => 'it', 'sec' => 'o13tam'],
+					['zones' => ['vn'], 'id' => '1970','lang' => 'vn', 'sec' => '7w04lu'],
+					['zones' => ['tr'], 'id' => '1971','lang' => 'tr', 'sec' => 'm0i3bs'],
+				],
+				'PRESETS' => [
+					'url' => defined('BX24_HOST_NAME') ? BX24_HOST_NAME : $_SERVER['SERVER_NAME'],
+					'tarif' => $b24 ? \CBitrix24::getLicenseType() : '',
+					'city' => $b24 ? implode(' / ', $this->getUserGeoData()) : '',
+					'partner_id' => $partnerId,
+					'date_to' => $tariffDate ?: null
+				],
+				'PORTAL_URI' => 'https://bitrix24.team'
 			]
 		];
 
@@ -564,13 +603,13 @@ class LandingBaseComponent extends \CBitrixComponent
 
 	/**
 	 * Gets last navigation object.
-	 * @return \Bitrix\Main\UI\PageNavigation
+	 * @return PageNavigation
 	 */
 	public function getLastNavigation(): PageNavigation
 	{
 		if (!$this->lastNavigation)
 		{
-			$this->lastNavigation = new PageNavigation('nav');
+			$this->lastNavigation = new PageNavigation(self::NAVIGATION_ID);
 			$this->lastNavigation
 				->allowAllRecords(false)
 				->initFromUri();
@@ -594,8 +633,8 @@ class LandingBaseComponent extends \CBitrixComponent
 			// make navigation
 			if (isset($params['navigation']))
 			{
-				$this->lastNavigation = new \Bitrix\Main\UI\PageNavigation(
-					$this::NAVIGATION_ID
+				$this->lastNavigation = new PageNavigation(
+					self::NAVIGATION_ID
 				);
 				$this->lastNavigation->allowAllRecords(false)
 									->setPageSize($params['navigation'])
@@ -756,22 +795,37 @@ class LandingBaseComponent extends \CBitrixComponent
 	}
 
 	/**
-	 * Get loc::getMessage by type of site.
+	 * Wrapper for Loc::getMessage (adds site type as suffix to message code).
+	 *
 	 * @param string $code Mess code.
-	 * @param array $replace Array for replace, e.g. array('#NUM#' => 5).
+	 * @param array|null $replace Array for replace, e.g. array('#NUM#' => 5).
+	 * @param int|null $version Version of new phrase if needed.
 	 * @return string
 	 */
-	public function getMessageType($code, $replace = null)
+	public function getMessageType(string $code, ?array $replace = null, ?int $version = null): string
 	{
 		static $codes = [];
 
 		if (!array_key_exists($code, $codes))
 		{
-			$mess = Loc::getMessage($code . '_' . $this->arParams['TYPE'], $replace);
+			if ($version)
+			{
+				$mess = Loc::getMessage($code . '_' . $version . '_' . $this->arParams['TYPE'], $replace);
+				if (!$mess)
+				{
+					$mess = Loc::getMessage($code . '_' . $this->arParams['TYPE'], $replace);
+				}
+			}
+			else
+			{
+				$mess = Loc::getMessage($code . '_' . $this->arParams['TYPE'], $replace);
+			}
+
 			if (!$mess)
 			{
 				$mess = Loc::getMessage($code, $replace);
 			}
+
 			$codes[$code] = $mess;
 		}
 
@@ -821,7 +875,7 @@ class LandingBaseComponent extends \CBitrixComponent
 			);
 			$curUri->deleteParams([
 				'sessid', 'action', 'param', 'additional', 'code', 'tpl',
-				'stepper', 'start', 'IS_AJAX', $this::NAVIGATION_ID
+				'stepper', 'start', 'IS_AJAX', self::NAVIGATION_ID
 			]);
 		}
 
@@ -1143,18 +1197,14 @@ class LandingBaseComponent extends \CBitrixComponent
 	 */
 	protected function getSpecialTypeSiteByLanding(Landing $landing): ?string
 	{
-		$specialType = null;
 		$meta = $landing->getMeta();
 
 		if ($meta['SITE_SPECIAL'] === 'Y')
 		{
-			if (preg_match('#^/' . Site\Type::PSEUDO_SCOPE_CODE_FORMS . '[\d]*/$#', $meta['SITE_CODE']))
-			{
-				$specialType = \Bitrix\Landing\Site\Type::PSEUDO_SCOPE_CODE_FORMS;
-			}
+			return Site\Type::getSiteTypeForms($meta['SITE_CODE']);
 		}
 
-		return $specialType;
+		return null;
 	}
 
 	/**
@@ -1299,6 +1349,21 @@ class LandingBaseComponent extends \CBitrixComponent
 			}
 			\Bitrix\Landing\Rights::setGlobalOn();
 		}
+	}
+
+	/**
+	 * Get js-string for adding var with url for google fonts proxy
+	 * @return void
+	 */
+	public function getFontProxyUrlScript(): string
+	{
+		$domain = 'fonts.googleapis.com';
+		if (Loader::includeModule('ui'))
+		{
+			$domain = Fonts\Proxy::resolveDomain(Manager::getZone());
+		}
+
+		return "<script>window.fontsProxyUrl = '{$domain}';</script>";
 	}
 
 	/**
