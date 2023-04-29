@@ -44,7 +44,7 @@ if (in_array($this->getPageName(), ['site_domain', 'site_domain_switch', 'site_c
 	return;
 }
 
-Loc::loadMessages(dirname(__FILE__) . '/template.php');
+Loc::loadMessages(__DIR__ . '/template.php');
 
 \Bitrix\Main\UI\Extension::load(['ajax', 'landing_master']);
 $disableFrame = $this->getPageName() == 'landing_view';
@@ -137,13 +137,9 @@ elseif (in_array($this->getPageName(), array('template', 'site_show')))
 	}
 	else if ($arResult['ACCESS_SITE_NEW'] == 'Y')
 	{
-		$title = Loc::getMessage('LANDING_TPL_ADD_SITE_' . $arParams['TYPE']);
+		$title = Loc::getMessage('LANDING_TPL_ADD_SITE_2');
 		$link = $arParams['PAGE_URL_SITE_EDIT'];
 		$link = str_replace('#site_edit#', 0, $link);
-		if (!$title)
-		{
-			$title = Loc::getMessage('LANDING_TPL_ADD_SITE');
-		}
 	}
 
 	$folderId = $request->get($arParams['ACTION_FOLDER']);
@@ -156,38 +152,17 @@ elseif (in_array($this->getPageName(), array('template', 'site_show')))
 	)
 	{
 		$settingsLink[] = [
-			'TITLE' => Loc::getMessage('LANDING_TPL_SETTING_SITE'),
-			'LINK' => $linkSett = str_replace(
+			'TITLE' => Loc::getMessage('LANDING_TPL_SETTING'),
+			'LINK' => str_replace(
 				'#site_edit#',
 				$arResult['VARS']['site_show'],
-				$arParams['PAGE_URL_SITE_EDIT']
+				$arParams['PAGE_URL_SITE_SETTINGS']
 			)
 		];
-		if ($arParams['TYPE'] == 'STORE')
-		{
-			$uriSettCatalog = new \Bitrix\Main\Web\Uri($linkSett);
-			$uriSettCatalog->addParams(['tpl' => 'catalog']);
-			$settingsLink[] = [
-				'TITLE' => Loc::getMessage('LANDING_TPL_SETTING_CATALOG'),
-				'LINK' => $uriSettCatalog->getUri()
-			];
-			unset($linkSett, $uriSettCatalog);
-		}
 	}
 	// add site import button
 	else if ($arResult['ACCESS_SITE_NEW'] == 'Y')
 	{
-		if (\Bitrix\Landing\Rights::isAdmin())
-		{
-			$settingsLink[] = [
-				'TITLE' => Loc::getMessage('LANDING_TPL_MENU_RIGHTS'),
-				'LINK' => $arParams['PAGE_URL_ROLES'],
-				'DATASET' => [
-					'skipSlider' => true
-				],
-			];
-		}
-
 		$importUrl = \Bitrix\Landing\Transfer\Import\Site::getUrl(
 			$arParams['TYPE']
 		);
@@ -199,7 +174,35 @@ elseif (in_array($this->getPageName(), array('template', 'site_show')))
 				'LINK' => $importUrl
 			];
 		}
+	}
+	// add rights button
+	if (\Bitrix\Landing\Rights::isAdmin())
+	{
+		$settingsLink[] = [
+			'TITLE' => Loc::getMessage('LANDING_TPL_MENU_RIGHTS'),
+			'LINK' => $arParams['PAGE_URL_ROLES'],
+			'DATASET' => [
+				'skipSlider' => true
+			],
+		];
+	}
 
+	if (
+		$arResult['VARS']['site_show'] <= 0 &&
+		(LANGUAGE_ID === 'ru' || LANGUAGE_ID === 'ua') &&
+		($arParams['TYPE'] == 'PAGE' || $arParams['TYPE'] == 'STORE') &&
+		!\Bitrix\Main\ModuleManager::isModuleInstalled('bitrix24') &&
+		\Bitrix\Main\ModuleManager::isModuleInstalled('sale')
+	)
+	{
+		$settingsLink[] = [
+			'TITLE' => Loc::getMessage('LANDING_TPL_DEV_SITE'),
+			'LINK' => '/bitrix/components/bitrix/sale.bsm.site.master/slider.php'
+		];
+	}
+
+	if ($this->getPageName() !== 'site_show')
+	{
 		if (count($settingsLink) > 0)
 		{
 			$settingsLink[] = ['TITLE' => '', 'LINK' => '', 'DELIMITER' => true];
@@ -211,19 +214,6 @@ elseif (in_array($this->getPageName(), array('template', 'site_show')))
 			'DATASET' => [
 				'skipSlider' => true
 			],
-		];
-	}
-
-	if (
-		$arResult['VARS']['site_show'] <= 0 &&
-		($arParams['TYPE'] == 'PAGE' || $arParams['TYPE'] == 'STORE') &&
-		!\Bitrix\Main\ModuleManager::isModuleInstalled('bitrix24') &&
-		\Bitrix\Main\ModuleManager::isModuleInstalled('sale')
-	)
-	{
-		$settingsLink[] = [
-			'TITLE' => Loc::getMessage('LANDING_TPL_DEV_SITE'),
-			'LINK' => '/bitrix/components/bitrix/sale.bsm.site.master/slider.php'
 		];
 	}
 

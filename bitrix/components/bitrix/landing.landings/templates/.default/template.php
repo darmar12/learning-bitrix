@@ -34,7 +34,12 @@ $folderId = $arResult['FOLDER_ID'];
 // assets, title
 \Bitrix\Landing\Manager::setPageTitle(\htmlspecialcharsbx($arResult['TITLE']));
 \Bitrix\Main\UI\Extension::load([
-	'landing_master', 'landing.explorer', 'action_dialog', 'clipboard', 'sidepanel'
+	'ui.design-tokens',
+	'landing_master',
+	'landing.explorer',
+	'action_dialog',
+	'clipboard',
+	'sidepanel',
 ]);
 $bodyClass = $APPLICATION->GetPageProperty('BodyClass');
 $APPLICATION->SetPageProperty(
@@ -89,7 +94,16 @@ $sliderConditions = [
 			'(\d+)', '\?'
 		),
 		CUtil::jsEscape($arParams['PAGE_URL_LANDING_DESIGN'])
-	)
+	),
+	str_replace(
+		array(
+			'#landing_edit#', '?'
+		),
+		array(
+			'(\d+)', '\?'
+		),
+		CUtil::jsEscape($arParams['PAGE_URL_LANDING_SETTINGS'])
+	),
 ];
 
 if ($arParams['TILE_MODE'] === 'view')
@@ -237,6 +251,12 @@ foreach ($arResult['LANDINGS'] as $i => $item):
 		$areaCode = '';
 		$areaTitle = '';
 		$accessSite = $arResult['ACCESS_SITE'];
+		$urlSettings = new Uri(str_replace('#landing_edit#', $item['ID'], $arParams['~PAGE_URL_LANDING_SETTINGS']));
+		$urlSettings->addParams([
+			'PAGE' => 'LANDING_EDIT',
+		]);
+		$urlSettings = $urlSettings->getUri();
+
 		$urlEdit = str_replace('#landing_edit#', $item['ID'], $arParams['~PAGE_URL_LANDING_EDIT']);
 		$urlEditDesign = str_replace('#landing_edit#', $item['ID'], $arParams['~PAGE_URL_LANDING_DESIGN']);
 		$urlView = str_replace('#landing_edit#', $item['ID'], $arParams['~PAGE_URL_LANDING_VIEW']);
@@ -340,8 +360,7 @@ foreach ($arResult['LANDINGS'] as $i => $item):
 									copyPage: '<?= htmlspecialcharsbx(CUtil::jsEscape($uriCopy->getUri())) ?>',
 									movePage: '<?= htmlspecialcharsbx(CUtil::jsEscape($uriMove->getUri())) ?>',
 									deletePage: '#',
-									editPage: '<?= htmlspecialcharsbx(CUtil::jsEscape($urlEdit)) ?>',
-									editPageDesign: '<?= htmlspecialcharsbx(CUtil::jsEscape($urlEditDesign))?>',
+									settings: '<?= htmlspecialcharsbx(CUtil::jsEscape($urlSettings)) ?>',
 							 		isFolder: false,
 							 		isActive: <?= ($item['ACTIVE'] === 'Y') ? 'true' : 'false' ?>,
 							 		isDeleted: <?= ($item['DELETED'] === 'Y') ? 'true' : 'false' ?>,
@@ -363,8 +382,17 @@ foreach ($arResult['LANDINGS'] as $i => $item):
 					</div>
 				<?php endif;?>
 				<div class="landing-item-cover<?= $item['IS_AREA'] ? ' landing-item-cover-area' : '' ?>"
-					<?if ($item['PREVIEW'] && !$item['IS_AREA']) {?> style="background-image: url(<?=
-					htmlspecialcharsbx($item['PREVIEW'])?>);"<?}?>>
+					<?php if ($item['PREVIEW'] && !$item['IS_AREA']) :?>
+						style="background-image: url(<?= htmlspecialcharsbx($item['PREVIEW']) ?>);"
+						<?php if (
+							$item['PUBLISHED']
+							&& $item['CLOUD_PREVIEW']
+							&& ($item['CLOUD_PREVIEW'] !== $item['PREVIEW'])
+						) :?>
+							data-cloud-preview="<?= $item['CLOUD_PREVIEW'] ?>"
+						<?php endif; ?>
+					<?php endif; ?>
+				>
 					<?if ($item['IS_HOMEPAGE'] || $item['IS_AREA']):?>
 					<div class="landing-item-area">
 						<div class="landing-item-area-icon<?=' landing-item-area-icon-' . htmlspecialcharsbx($areaCode) ?>"></div>
@@ -481,27 +509,8 @@ foreach ($arResult['LANDINGS'] as $i => $item):
 
 	BX.ready(function ()
 	{
-		var wrapper = BX('grid-tile-wrap');
-		var title_list = Array.prototype.slice.call(wrapper.getElementsByClassName('landing-item'));
-
-		setTimeout(function()
-		{
-			let previews = document.querySelectorAll('.landing-item-cover');
-
-			if (previews)
-			{
-				[...previews].map(function(node)
-				{
-					let url = node.style.backgroundImage.match(/url\(["']?([^"']*)["']?\)/);
-					if (url)
-					{
-						url = url[1];
-						url += (url.indexOf('?') > 0) ? '&' : '?';
-						node.style.backgroundImage = 'url(' + url + 'refreshed)';
-					}
-				});
-			}
-		}, 3000);
+		const wrapper = BX('grid-tile-wrap');
+		const title_list = Array.prototype.slice.call(wrapper.getElementsByClassName('landing-item'));
 
 		tileGrid = new BX.Landing.TileGrid({
 			wrapper: wrapper,
@@ -513,6 +522,36 @@ foreach ($arResult['LANDINGS'] as $i => $item):
 				maxWidth: 330
 			}
 		});
+
+		// init previews
+		const previews = document.querySelectorAll('.landing-item-cover[data-cloud-preview]');
+		previews.forEach(item => lazyLoadCloudPreview(item));
+		function lazyLoadCloudPreview(item)
+		{
+			const cloudPreview = item.dataset.cloudPreview;
+			const previewUrl =
+				cloudPreview
+				+ ((cloudPreview.indexOf('?') > 0) ? '&' : '?')
+				+ 'refreshed' + (Date.now()/86400000|0)
+			;
+			const xhr = new XMLHttpRequest();
+			xhr.open("HEAD", previewUrl);
+			xhr.onload = () => {
+				const expires = xhr.getResponseHeader("expires");
+				if (
+					expires
+					&& (new Date(expires)) <= (new Date())
+				)
+				{
+					setTimeout(lazyLoadCloudPreview, 3000, item);
+				}
+				else
+				{
+					item.style.backgroundImage = 'url(' + previewUrl + ')';
+				}
+			};
+			xhr.send();
+		}
 
 		// disable some buttons for deleted
 		var createFolderEl = BX('landing-create-folder');
@@ -578,8 +617,12 @@ foreach ($arResult['LANDINGS'] as $i => $item):
 				<?if ($arParams['DRAFT_MODE'] != 'Y'):?>
 				{
 					text: params.wasModified && params.isActive
-						? '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_PUBLIC_CHANGED'));?>'
-						: '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_PUBLIC'));?>',
+						? '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_PUBLIC_CHANGED')) ?>'
+						: (
+							params.isFolder
+							? '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_PUBLIC_FOLDER')) ?>'
+							: '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_PUBLIC')) ?>'
+						),
 					disabled: params.isDeleted || params.isPublicationDisabled || (!params.wasModified && params.isActive),
 					onclick: function(event)
 					{
@@ -624,7 +667,10 @@ foreach ($arResult['LANDINGS'] as $i => $item):
 					}
 				},
 				{
-					text: '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_UNPUBLIC'));?>',
+					text: params.isFolder
+						? '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_UNPUBLIC_FOLDER')) ?>'
+						: '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_UNPUBLIC')) ?>'
+					,
 					disabled: params.isDeleted || params.isPublicationDisabled || !params.isActive,
 					onclick: function(event)
 					{
@@ -718,19 +764,9 @@ foreach ($arResult['LANDINGS'] as $i => $item):
 				},
 				{
 					text: params.isFolder
-							? '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_EDIT_FOLDER'));?>'
-							: '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_EDIT_2'));?>',
-					href: params.editPage,
-					disabled: params.isDeleted || params.isSettingsDisabled,
-					onclick: function()
-					{
-						this.popupWindow.close();
-					}
-				},
-				params.isFolder ? null :
-				{
-					text: '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_EDIT_DESIGN_2'));?>',
-					href: params.editPageDesign,
+							? '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_EDIT_FOLDER_MSGVER_1')) ?>'
+							: '<?= CUtil::jsEscape(Loc::getMessage('LANDING_TPL_ACTION_EDIT_2')) ?>',
+					href: params.isFolder ? params.editPage : params.settings,
 					disabled: params.isDeleted || params.isSettingsDisabled,
 					onclick: function()
 					{
@@ -893,8 +929,39 @@ foreach ($arResult['LANDINGS'] as $i => $item):
 								sitePath = sitePath.replace(replace[0], replace[1]);
 							});
 
+							if (
+								event.data.from !== undefined
+								&& typeof BX.Landing.Metrika !== 'undefined'
+							)
+							{
+								var dataFrom = event.data.from.split('|');
+								var appCode = dataFrom[1];
+								var title = dataFrom[2];
+								var previewId = dataFrom[3];
+								if (
+									appCode !== null
+									&& title !== null
+									&& previewId !== null
+								)
+								{
+									var metrikaValue =
+										sitePath
+										+ '?action=templateCreated&app_code='
+										+ appCode
+										+ '&title='
+										+ title
+										+ '&preview_id='
+										+ previewId;
+									var metrika = new BX.Landing.Metrika(true);
+									metrika.sendLabel(
+										null,
+										'templateCreated',
+										metrikaValue
+									);
+								}
+							}
 							gotoSiteButton.setAttribute('href', sitePath);
-							window.location.href = sitePath;
+							setTimeout(() => {window.location.href = sitePath}, 3000);
 						}
 					}
 				}
